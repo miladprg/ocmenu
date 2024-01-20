@@ -5,6 +5,10 @@
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/miladprg/ocmenu/master/install.sh)
 ```
+بعد از نصب برای اجرای دستور و کار با ابزار کافیه تایپ کنید
+```bash
+ocmenu
+```
 
 \*\*\* اگه هرموقع خواستید مجددا آدرس سرورها رو اضافه کنید دستور **'ocmenu --init'** رو تایپ کنید.<br>
 \*\*\* پورت سرورها باید یکسان باشه. اگه کسی درخواست بده احتمالا تغییرش بدم.
@@ -40,6 +44,10 @@ bash <(curl -s https://raw.githubusercontent.com/miladprg/ocmenu/master/install.
 To use the script first run with the following command. Then enter the number of servers and IP addresses and at the end enter the SSH port servers.
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/miladprg/ocmenu/master/install.sh)
+```
+After installing to execute the command and work with the tool you need to type
+```bash
+ocmenu
 ```
 
 \*\*\* If you want to add the address of the servers again, type **'ocmenu --init'** <br>
