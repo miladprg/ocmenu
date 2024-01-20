@@ -1,0 +1,379 @@
+#!/bin/bash
+
+#=================== CONSTS ===================
+NETWORK_INTERFACE_NAME=$(ip route | grep default | awk '{print $5}')
+NETWORK_PUBLIC_IP=$(ip -4 addr show $NETWORK_INTERFACE_NAME | grep -oP 'inet \K[0-9.]+')
+SERVERS=()
+SERVERS_SSH_PORT=0
+TEMP_FILE="/root/temp"
+OCSERV_PATH="/etc/ocserv/"
+RADCLI_PATH="/etc/radcli/"
+#==============================================
+
+
+
+#============== DEFINE FUNCTIONS ==============
+pak(){
+	printf "\n"
+	read -p "Press Any Key to Continue..." _
+	printf "\n"
+}
+
+add_user_or_change_password(){
+	read -p "Enter username: " username
+	ocpasswd -c $OCSERV_PATH"ocpasswd" $username
+}
+
+check_user_exist(){
+	read -p "Enter Username: " username
+	is_exist=$(cat $OCSERV_PATH"ocpasswd" | grep $username:)
+	if [ -n "$is_exist" ]; then
+		echo "user '$username' is exist"
+	else
+		echo "not exist"
+	fi
+}
+
+lock_user(){
+        read -p "Enter username: " username
+        ocpasswd -l $username
+}
+
+unlock_user(){
+        read -p "Enter username: " username
+        ocpasswd -u $username
+}
+
+delete_user(){
+	read -p "Enter username: " username
+	ocpasswd -d $username
+}
+
+sync_users_to_other_servers(){
+        copy_file_to_servers $OCSERV_PATH"ocpasswd" $OCSERV_PATH"ocpasswd"
+}
+
+check_user_connections(){
+	read -p "Enter username: " username
+        occtl show users | grep $username
+        broadcast_to_servers_quiet "occtl show users | grep $username;"
+}
+
+online_users_count(){
+        echo "$NETWORK_PUBLIC_IP: "$(occtl show users | wc -l)
+        broadcast_to_servers "occtl show users | wc -l"
+}
+
+disconnect_user(){
+	if [ -z $1 ]; then
+		read -p "Enter username: " username
+	else
+		username=$1
+	fi
+	echo "$NETWORK_PUBLIC_IP: "$(occtl disconnect user $username)
+        broadcast_to_servers "occtl disconnect user $username;"
+}
+
+disconnect_user_from_file(){
+	if [ -z $1 ]; then
+		echo "error! this function must be execute by other function."
+		exit
+	fi
+        USER=$(head -1 $1)
+        if [ -n "$USER" ]; then
+                disconnect_user $USER
+                tail -n +2 < $1 | sponge $1
+                disconnect_user_from_file $1
+        fi
+}
+
+users_multiple_connections(){
+        occtl show users > $TEMP_FILE; broadcast_to_servers_quiet "occtl show users" >> $TEMP_FILE
+        cat  $TEMP_FILE | tr -s ' ' | cut -d' ' -f3 | sort | uniq --repeated --count | grep -v "(none)" | grep -v "user"
+        read -p "Disconnect users [y/n]: " DISCONNECT_USERS_CONFIRM
+        if [[ $DISCONNECT_USERS_CONFIRM = "y" ]]; then
+                tr -s ' ' < $TEMP_FILE | cut -d' ' -f3 | sort | uniq --repeated | grep -v "(none)" | grep -v "user" | sponge $TEMP_FILE
+                printf "\n"
+                disconnect_user_from_file $TEMP_FILE
+        fi
+        rm $TEMP_FILE
+}
+
+connect_to_server(){
+        for (( i=0; i<(${#SERVERS[@]}); i++ )); do
+                echo $((i+1))\) ${SERVERS[$i]}
+        done
+        read -p "enter server number you want connect to: " server_number
+        ssh -p $SERVERS_SSH_PORT root@${SERVERS[$server_number-1]}
+}
+
+broadcast_to_servers_quiet(){
+	if [ -n "$1" ]; then
+		broadcast_message=$1
+	else
+		read -p "what is broadcast: " broadcast_message
+	fi
+        for server in "${SERVERS[@]}"; do
+                ssh -p $SERVERS_SSH_PORT root@$server "$broadcast_message"
+        done
+}
+
+broadcast_to_servers(){
+        if [ -n "$1" ]; then
+                broadcast_message=$1
+        else
+                read -p "what is broadcast: " broadcast_message
+        fi
+        for server in "${SERVERS[@]}"; do
+                echo "$server: "$(ssh -p $SERVERS_SSH_PORT root@$server "$broadcast_message")
+        done
+}
+
+copy_file_to_servers(){
+	if [[ -n "$1" && -n "$2" ]]; then
+		source_file=$1
+		destination_file=$2
+	else
+		read -p "source file: " source_file
+		read -p "destination file: " destination_file
+	fi
+
+        for server in "${SERVERS[@]}"; do
+                rsync -avz --delete -e "ssh -p $SERVERS_SSH_PORT " "$source_file" root@$server:"$destination_file"
+        done
+}
+
+sync_ssh_key(){
+        for server in "${SERVERS[@]}"; do
+                ssh-copy-id -p $SERVERS_SSH_PORT root@$server
+        done
+}
+
+sync_ocserv_config(){
+        copy_file_to_servers $OCSERV_PATH"ocserv.conf" $OCSERV_PATH"ocserv.conf"
+}
+
+sync_radius_client_config_files(){
+        copy_file_to_servers $RADCLI_PATH"servers" $RADCLI_PATH"servers"
+        copy_file_to_servers $RADCLI_PATH"radiusclient.conf" $RADCLI_PATH"radiusclient.conf"
+}
+
+edit_ocserv_config(){
+	nano $OCSERV_PATH"ocserv.conf"
+}
+
+edit_ocserv_ocpasswd_file(){
+	nano $OCSERV_PATH"ocpasswd"
+}
+
+
+edit_radius_client_servers_file(){
+	config=$RADCLI_PATH"servers"
+        if [ -e "$config" ]; then
+                nano $config
+        else
+                echo "file not exist"
+        fi
+}
+
+edit_radius_client_radiusclientconf_file(){
+	config=$RADCLI_PATH"radiusclient.conf"
+        if [ -e "$config" ]; then
+                nano $config
+        else
+                echo "file not exist"
+        fi
+}
+#==============================================
+
+
+
+#================ DEFINE MENUS ================
+init_menu(){
+	clear
+	echo '
+ _____                                                         _____
+( ___ )-------------------------------------------------------( ___ )
+ |   |                                                         |   |
+ |   | ██╗███╗   ██╗███████╗████████╗ █████╗ ██╗     ██╗       |   |
+ |   | ██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║       |   |
+ |   | ██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║       |   |
+ |   | ██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║       |   |
+ |   | ██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗  |   |
+ |   | ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝  |   |
+ |   |                                                         |   |
+ |   |  ██████╗  ██████╗███╗   ███╗███████╗███╗   ██╗██╗   ██╗ |   |
+ |   | ██╔═══██╗██╔════╝████╗ ████║██╔════╝████╗  ██║██║   ██║ |   |
+ |   | ██║   ██║██║     ██╔████╔██║█████╗  ██╔██╗ ██║██║   ██║ |   |
+ |   | ██║   ██║██║     ██║╚██╔╝██║██╔══╝  ██║╚██╗██║██║   ██║ |   |
+ |   | ╚██████╔╝╚██████╗██║ ╚═╝ ██║███████╗██║ ╚████║╚██████╔╝ |   |
+ |   |  ╚═════╝  ╚═════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝  |   |
+ |   |                                                         |   |
+ |___|  github.com/miladprg                                    |___|
+(_____)-------------------------------------------------------(_____)
+'
+
+	printf "\nWelcome to Installation OCMENU\n\n"
+	read -p "Enter the number of servers: " number_of_servers
+
+	printf "\nNow enter the ip address of server.\n\n"
+
+	server_addresses=" "
+	for ((i=1; i<=$number_of_servers; i++)); do
+	        read -p "IP address of server $i: " ip_address
+	        server_addresses+="\"$ip_address\" "
+	done
+
+	sed -i "0,/SERVERS\=.*/s//SERVERS=($server_addresses)/" $(realpath $0)
+
+	printf "\nOK! Servers are added.\n\n"
+
+	read -p "Now enter the ssh port of servers: " ssh_port_of_servers
+	sed -i "0,/SERVERS_SSH_PORT\=.*/s//SERVERS_SSH_PORT=$ssh_port_of_servers/" $(realpath $0)
+
+	printf "\n\n*** Important\nNow you must copy ssh key of this server to entered server[s] for next operations.\nFor this type 'ocmenu' and press enter, then press key '3 (Sync Menu)' and press enter, then press '1 (Sync SSH Key)' and press enter.\nAnd then for each server you must type 'yes' and password of that server until this server is forever known.\n\n"
+
+	printf "\nAlso you can type 'ocmenu' for run panel or 'ocmenu --init' for import servers again!\n\n"
+
+	printf "follow me on github.com/miladprg\n\n"
+}
+
+main_menu(){
+	clear
+	echo '
+ _____                                                             _____ 
+( ___ )-----------------------------------------------------------( ___ )
+ |   |                                                             |   | 
+ |   |  ██████╗  ██████╗    ███╗   ███╗███████╗███╗   ██╗██╗   ██╗ |   | 
+ |   | ██╔═══██╗██╔════╝    ████╗ ████║██╔════╝████╗  ██║██║   ██║ |   | 
+ |   | ██║   ██║██║         ██╔████╔██║█████╗  ██╔██╗ ██║██║   ██║ |   | 
+ |   | ██║   ██║██║         ██║╚██╔╝██║██╔══╝  ██║╚██╗██║██║   ██║ |   | 
+ |   | ╚██████╔╝╚██████╗    ██║ ╚═╝ ██║███████╗██║ ╚████║╚██████╔╝ |   | 
+ |   |  ╚═════╝  ╚═════╝    ╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝  |   | 
+ |   |                                                             |   | 
+ |___|  github.com/miladprg                                        |___| 
+(_____)-----------------------------------------------------------(_____)
+'
+
+	options=("Users Menu" "Server Menu" "Sync Menu" "Edit Menu" "Quit")
+	PS3=$'\nSelect an option: '
+
+	COLUMNS=10
+	select main_option in "${options[@]}"; do
+		case $REPLY in
+			1) clear;users_menu;break;;
+			2) clear;server_menu;break;;
+			3) clear;sync_menu;break;;
+			4) clear;edit_menu;break;;
+			5) exit;break;;
+			*) clear;echo "Invalid option!";main_menu;;
+		esac
+	done
+}
+
+users_menu(){
+	clear
+	options=("Add User or Change Password" "Check User Exist" "Lock User" "Unlock User" "Delete User" "Sync Users to Other Servers" "Check User Connections" "Online Users Count" "Users Multiple Connections" "Disconnect User" "Back to Main Menu" "Quit")
+	PS3=$'\nSelect an option: '
+	COLUMNS=10
+
+	select user_option in "${options[@]}"; do
+		case $REPLY in
+			1) clear;add_user_or_change_password;users_menu;break;;
+			2) clear;check_user_exist;pak;users_menu;break;;
+			3) clear;lock_user;users_menu;break;;
+			4) clear;unlock_user;users_menu;break;;
+			5) clear;delete_user;users_menu;break;;
+			6) clear;sync_users_to_other_servers;pak;users_menu;break;;
+			7) clear;check_user_connections;pak;users_menu;break;;
+			8) clear;online_users_count;pak;users_menu;break;;
+			9) clear;users_multiple_connections;pak;users_menu;break;;
+			10) clear;disconnect_user;pak;users_menu;break;;
+			11) clear;main_menu;break;;
+			12) exit;break;;
+			*) clear;echo "Invalid Option!";users_menu;;
+		esac
+	done
+}
+
+
+server_menu(){
+	clear
+	options=("Connect to Server" "Broadcast to Servers" "Copy File to Servers" "Back to Main Menu" "Quit")
+	PS3=$'\nSelect an Option: '
+	COLUMNS=10
+
+	select server_option in "${options[@]}"; do
+                case $REPLY in
+                        1) clear;connect_to_server;server_menu;break;;
+                        2) clear;broadcast_to_servers;pak;server_menu;break;;
+                        3) clear;copy_file_to_servers;pak;server_menu;break;;
+                        4) clear;main_menu;break;;
+			5) exit;break;;
+                        *) clear;echo "Invalid Option!";server_menu;;
+                esac
+	done
+}
+
+
+sync_menu(){
+	clear
+	options=("Sync SSH Key" "Sync Ocserv Config" "Sync Radius Client Config Files" "Back to Main Menu" "Quit")
+	PS3=$'\nSelect an option: '
+	COLUMNS=10
+
+	select sync_option in "${options[@]}"; do
+		case $REPLY in
+			1) clear;sync_ssh_key;pak;sync_menu;break;;
+			2) clear;sync_ocserv_config;pak;sync_menu;break;;
+			3) clear;sync_radius_client_config_files;pak;sync_menu;break;;
+			4) clear;main_menu;break;;
+			5) exit;break;;
+			*) clear;echo "Invalid Option!";;
+		esac
+	done
+}
+
+edit_menu(){
+	clear
+	options=("Edit Ocserv Config" "Edit Ocserv Passwd File" "Edit Radius Client 'Servers' File" "Edit Radius Client 'radiusclient.conf' File" "Back to Main Menu" "Quit")
+	PS3=$'\nSelect an option: '
+	COLUMNS=10
+
+	select edit_option in "${options[@]}"; do
+		case $REPLY in
+			1) clear;edit_ocserv_config;edit_menu;break;;
+			2) clear;edit_ocserv_ocpasswd_file;edit_menu;break;;
+			3) clear;edit_radius_client_servers_file;edit_menu;break;;
+			4) clear;edit_radius_client_radiusclientconf_file;edit_menu;break;;
+			5) clear;main_menu;break;;
+			6) exit;break;;
+			*) clear;echo "Invalid Option!";;
+		esac
+	done
+}
+#==============================================
+
+
+
+#==================== Main ====================
+if [ -n "$1" ]; then
+	if [ "$1" == "--edit" ]; then
+	        nano $(realpath $0)
+	        exit
+	fi
+
+	if [ "$1" == "--init" ]; then
+	        init_menu
+	        exit
+	fi
+fi
+
+if [[ ${#SERVERS[@]} -eq 0 || "$SERVERS_SSH_PORT" -eq 0 ]]; then
+	init_menu
+	exit
+fi
+
+main_menu
+#==============================================
+
