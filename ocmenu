@@ -235,7 +235,7 @@ init_menu(){
 
 	printf "follow me on github.com/miladprg\n\n"
 
-	printf "\n*** Important\nThe system now automatically connects to each server and copy the SSH key to the destination server.\n\n"
+	printf "*** Important\nThe system now automatically connects to each server and copy the SSH key to the destination server.\n"
 
 	printf "Please only give 'yes' to answers and then enter the server password.\n\n"
 
