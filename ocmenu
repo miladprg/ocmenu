@@ -21,9 +21,7 @@ pak(){
 
 add_user_or_change_password(){
 	read -p "Enter username: " username
-	read -p "Enter password: " password
-	ocpasswd -d $username
-	echo -e "${username}\n${password}" | ocpasswd -c $OCSERV_PATH"ocpasswd" $username
+	ocpasswd -c $OCSERV_PATH"ocpasswd" $username
 }
 
 check_user_exist(){
