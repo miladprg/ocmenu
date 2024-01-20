@@ -236,6 +236,8 @@ init_menu(){
 	printf "\nAlso you can type 'ocmenu' for run panel or 'ocmenu --init' for import servers again!\n\n"
 
 	printf "follow me on github.com/miladprg\n\n"
+
+	read -p "Now press any key to start sync ssh key to servers" _
 }
 
 main_menu(){
@@ -365,6 +367,11 @@ if [ -n "$1" ]; then
 
 	if [ "$1" == "--init" ]; then
 	        init_menu
+	        exit
+	fi
+
+	if [ "$1" == "ssh_sync" ]; then
+	        sync_ssh_key
 	        exit
 	fi
 fi
