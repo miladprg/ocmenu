@@ -231,11 +231,13 @@ init_menu(){
 	read -p "Now enter the ssh port of servers: " ssh_port_of_servers
 	sed -i "0,/SERVERS_SSH_PORT\=.*/s//SERVERS_SSH_PORT=$ssh_port_of_servers/" $(realpath $0)
 
-	printf "\n\n*** Important\nNow you must copy ssh key of this server to entered server[s] for next operations.\nFor this type 'ocmenu' and press enter, then press key '3 (Sync Menu)' and press enter, then press '1 (Sync SSH Key)' and press enter.\nAnd then for each server you must type 'yes' and password of that server until this server is forever known.\n\n"
-
-	printf "\nAlso you can type 'ocmenu' for run panel or 'ocmenu --init' for import servers again!\n\n"
+	printf "\nOK! Now you can type 'ocmenu' for run panel or 'ocmenu --init' for import servers again!\n\n"
 
 	printf "follow me on github.com/miladprg\n\n"
+
+	printf "\n\n*** Important\nThe system now automatically connects to each server and copy the SSH key to the destination server.\n\n"
+
+	printf "\n\nPlease only give 'yes' to answers and then enter the server password.\n\n"
 
 	read -p "Now press any key to start sync ssh key to servers" _
 }
